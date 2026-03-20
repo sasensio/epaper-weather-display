@@ -1,0 +1,320 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ESP32 Display Tuner</title>
+  <style>
+    body { font-family: sans-serif; margin: 16px; }
+    h1 { margin: 0 0 12px; font-size: 20px; }
+    .btns { margin: 12px 0; display: flex; flex-wrap: wrap; gap: 8px; }
+    button, a.btn { padding: 8px 10px; border: 1px solid #888; background: #f3f3f3; border-radius: 6px; text-decoration: none; color: #111; cursor: pointer; }
+        input[type='number'], select { width: 84px; }
+    .small { font-size: 12px; color: #444; }
+        table { border-collapse: collapse; width: 100%; max-width: 760px; margin-top: 12px; }
+        th, td { border: 1px solid #bbb; padding: 6px; text-align: left; }
+        th { background: #f0f0f0; }
+    #status { margin-top: 10px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>ESP32 Display Tuner</h1>
+    <div class="small">Edit table values (X/Y/font), then Apply. Font family option: Sans. Font sizes: 7, 9, 12, 18, 24, 32.</div>
+  <div class="btns">
+    <button onclick="applyLayout(true)">Apply</button>
+    <button onclick="post('/api/redraw')">Redraw</button>
+    <button onclick="post('/api/fetch')">Fetch Weather</button>
+    <button onclick="saveLayout()">Save</button>
+    <button onclick="post('/api/load').then(loadLayout)">Load</button>
+    <button onclick="post('/api/reset').then(loadLayout)">Reset</button>
+    <button onclick="downloadLayoutJson()">Download JSON</button>
+  </div>
+
+    <div class="btns">
+        <input id="sdPath" type="text" value="/icons/unknown.mask16" style="min-width: 260px" />
+        <input id="sdFile" type="file" />
+        <button onclick="uploadSdFile()">Upload SD File</button>
+    </div>
+
+    <div class="btns">
+        <label><input id="useRealValues" type="checkbox" checked /> Use real values</label>
+        <label>Test number: <input id="testValue" type="number" min="-99" max="99" value="25" /></label>
+        <label>Main temp justify:
+            <select id="currentTempJustify">
+                <option value="0">Left</option>
+                <option value="1" selected>Center</option>
+                <option value="2">Right</option>
+            </select>
+        </label>
+    </div>
+
+    <table id="layoutTable">
+        <thead>
+            <tr>
+                <th>Element</th>
+                <th>X pos</th>
+                <th>Y pos</th>
+                <th>Font family</th>
+                <th>Font size</th>
+            </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+    </table>
+
+  <div id="status"></div>
+
+  <script>
+        const tableBody = document.getElementById('tableBody');
+    const statusDiv = document.getElementById('status');
+    const sdPathEl = document.getElementById('sdPath');
+    const sdFileEl = document.getElementById('sdFile');
+    const useRealValuesEl = document.getElementById('useRealValues');
+    const testValueEl = document.getElementById('testValue');
+    const currentTempJustifyEl = document.getElementById('currentTempJustify');
+
+        const rows = [
+            { label: 'Last update', x: 'lastUpdateX', y: 'lastUpdateY', ff: 'lastUpdateFontFamily', fs: 'lastUpdateFontSize' },
+            { label: 'Update line gap', x: 'lastUpdateLineSpacing', y: null, ff: null, fs: null },
+            { label: 'Battery icon', x: 'batteryX', y: 'batteryY', ff: null, fs: null },
+            { label: 'Current icon', x: 'currentIconX', y: 'currentIconY', ff: null, fs: null },
+            { label: 'Current temperature', x: 'currentTempX', y: 'currentTempY', ff: 'currentTempFontFamily', fs: 'currentTempFontSize' },
+            { label: 'Feels temperature', x: 'feelTempX', y: 'feelTempY', ff: 'feelTempFontFamily', fs: 'feelTempFontSize' },
+            { label: 'Feels degree symbol', x: 'feelDegreeX', y: 'feelDegreeY', ff: null, fs: null },
+            { label: 'Feels unit C', x: 'feelCX', y: 'feelCY', ff: null, fs: null },
+            { label: 'High temperature', x: 'highRightX', y: 'highY', ff: 'highTempFontFamily', fs: 'highTempFontSize' },
+            { label: 'Low temperature', x: 'lowRightX', y: 'lowY', ff: 'lowTempFontFamily', fs: 'lowTempFontSize' },
+            { label: 'Forecast hour', x: null, y: 'forecastHourY', ff: 'forecastHourFontFamily', fs: 'forecastHourFontSize' },
+            { label: 'Forecast temp', x: null, y: 'forecastTempY', ff: 'forecastTempFontFamily', fs: 'forecastTempFontSize' },
+            { label: 'Forecast icon', x: 'forecastIconOffsetX', y: 'forecastIconY', ff: null, fs: null },
+        ];
+
+        const fontFamilies = [
+            { value: 0, label: 'Sans' },
+        ];
+
+        const fontSizes = [7, 9, 12, 18, 24, 32];
+
+        function makeInput(fieldName, value, disabled = false) {
+            const input = document.createElement('input');
+            input.type = 'number';
+            if (fieldName) {
+                input.dataset.field = fieldName;
+                input.value = value;
+            } else {
+                input.value = '-';
+            }
+            input.disabled = disabled || !fieldName;
+            return input;
+        }
+
+        function makeSelect(fieldName, value, options, disabled = false) {
+            const select = document.createElement('select');
+            if (fieldName) {
+                select.dataset.field = fieldName;
+            }
+            select.disabled = disabled || !fieldName;
+
+            options.forEach((opt) => {
+                const el = document.createElement('option');
+                el.value = String(opt.value);
+                el.textContent = opt.label;
+                if (String(opt.value) === String(value)) el.selected = true;
+                select.appendChild(el);
+            });
+            return select;
+        }
+
+        function renderTable(fields) {
+            tableBody.innerHTML = '';
+            rows.forEach((r) => {
+                const tr = document.createElement('tr');
+                const tdLabel = document.createElement('td');
+                tdLabel.textContent = r.label;
+
+                const tdX = document.createElement('td');
+                tdX.appendChild(makeInput(r.x, r.x ? fields[r.x] : '', !r.x));
+
+                const tdY = document.createElement('td');
+                tdY.appendChild(makeInput(r.y, r.y ? fields[r.y] : '', !r.y));
+
+                const tdFam = document.createElement('td');
+                tdFam.appendChild(makeSelect(r.ff, r.ff ? fields[r.ff] : '', fontFamilies, !r.ff));
+
+                const tdF = document.createElement('td');
+                tdF.appendChild(
+                    makeSelect(
+                        r.fs,
+                        r.fs ? fields[r.fs] : '',
+                        fontSizes.map((s) => ({ value: s, label: String(s) })),
+                        !r.fs
+                    )
+                );
+
+                tr.appendChild(tdLabel);
+                tr.appendChild(tdX);
+                tr.appendChild(tdY);
+                tr.appendChild(tdFam);
+                tr.appendChild(tdF);
+                tableBody.appendChild(tr);
+            });
+
+            const used = new Set();
+            rows.forEach((r) => {
+                if (r.x) used.add(r.x);
+                if (r.y) used.add(r.y);
+                if (r.ff) used.add(r.ff);
+                if (r.fs) used.add(r.fs);
+            });
+
+            Object.keys(fields).forEach((k) => {
+                if (used.has(k)) return;
+
+                const tr = document.createElement('tr');
+                const tdLabel = document.createElement('td');
+                tdLabel.textContent = k;
+
+                // Non X/Y/font fields are edited in the X column for consistency.
+                const tdX = document.createElement('td');
+                tdX.appendChild(makeInput(k, fields[k], false));
+
+                const tdY = document.createElement('td');
+                tdY.appendChild(makeInput(null, '', true));
+
+                const tdFam = document.createElement('td');
+                tdFam.appendChild(makeInput(null, '', true));
+
+                const tdF = document.createElement('td');
+                tdF.appendChild(makeInput(null, '', true));
+
+                tr.appendChild(tdLabel);
+                tr.appendChild(tdX);
+                tr.appendChild(tdY);
+                tr.appendChild(tdFam);
+                tr.appendChild(tdF);
+                tableBody.appendChild(tr);
+            });
+        }
+
+    async function loadLayout() {
+      const r = await fetch('/api/layout');
+      const data = await r.json();
+            renderTable(data.fields);
+            useRealValuesEl.checked = data.useRealValues !== false;
+            testValueEl.value = String(typeof data.testValue === 'number' ? data.testValue : 25);
+            testValueEl.disabled = useRealValuesEl.checked;
+            if (data.fields && typeof data.fields.currentTempJustify !== 'undefined') {
+                currentTempJustifyEl.value = String(data.fields.currentTempJustify);
+            }
+            let bat = '';
+            if (typeof data.batteryVoltage === 'number' && data.batteryVoltage > 0) {
+                const pct = (typeof data.batteryPercent === 'number' && data.batteryPercent >= 0)
+                    ? (' (' + data.batteryPercent + '%)')
+                    : '';
+                bat = ' | battery=' + data.batteryVoltage.toFixed(2) + 'V' + pct;
+            }
+            status('Loaded. IP: ' + data.ip + ' | hasWeather=' + data.hasWeather + bat);
+    }
+
+    async function applyLayout(saveAfter = false) {
+            const payload = {
+                fields: {},
+                useRealValues: !!useRealValuesEl.checked,
+                testValue: parseInt(testValueEl.value || '0', 10),
+            };
+            document.querySelectorAll("input[data-field], select[data-field]").forEach((el) => {
+                payload.fields[el.dataset.field] = parseInt(el.value || '0', 10);
+      });
+        payload.fields.currentTempJustify = parseInt(currentTempJustifyEl.value || '1', 10);
+
+      const r = await fetch('/api/layout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const txt = await r.text();
+            if (!r.ok) {
+                status('Apply failed: ' + txt);
+                return;
+            }
+
+            if (saveAfter) {
+                const saveText = await post('/api/save');
+                status('Apply + Save: ' + txt + ' / ' + saveText);
+            } else {
+                status('Apply: ' + txt);
+            }
+      await loadLayout();
+    }
+
+        async function saveLayout() {
+            await applyLayout(true);
+        }
+
+    async function post(path) {
+      const r = await fetch(path, { method: 'POST' });
+      const txt = await r.text();
+      status(path + ': ' + txt);
+      return txt;
+    }
+
+        async function uploadSdFile() {
+            const files = sdFileEl.files;
+            const path = (sdPathEl.value || '').trim();
+            if (!files || files.length === 0) {
+                status('Select a file first.');
+                return;
+            }
+            if (!path) {
+                status('Enter SD destination path (e.g. /fonts/free_sans_9.gfxf).');
+                return;
+            }
+
+            const form = new FormData();
+            form.append('file', files[0]);
+            const r = await fetch('/api/sd/upload?path=' + encodeURIComponent(path), {
+                method: 'POST',
+                body: form,
+            });
+            const txt = await r.text();
+            status((r.ok ? 'Upload OK: ' : 'Upload failed: ') + txt);
+        }
+
+        async function downloadLayoutJson() {
+            // Ensure downloaded JSON reflects the values currently visible in the table.
+            await applyLayout(false);
+
+            const r = await fetch('/download/layout.json?ts=' + Date.now(), { cache: 'no-store' });
+            if (!r.ok) {
+                const txt = await r.text();
+                status('Download failed: ' + txt);
+                return;
+            }
+
+            const blob = await r.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'layout.json';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            status('Download: OK');
+        }
+
+        setInterval(() => {
+            fetch('/api/ping', { method: 'POST' }).catch(() => {});
+        }, 2000);
+
+    function status(msg) {
+      statusDiv.textContent = msg;
+    }
+
+        useRealValuesEl.addEventListener('change', () => {
+            testValueEl.disabled = useRealValuesEl.checked;
+        });
+
+    loadLayout();
+  </script>
+</body>
+</html>

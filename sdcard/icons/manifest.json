@@ -1,0 +1,22 @@
+{
+  "format": "mask16-v1",
+  "size": 16,
+  "default": "unknown.mask16",
+  "icons": {
+    "sunny": "sunny.mask16",
+    "clear-night": "sunny.mask16",
+    "partlycloudy": "partlycloudy.mask16",
+    "cloudy": "cloudy.mask16",
+    "rainy": "rainy.mask16",
+    "pouring": "rainy.mask16",
+    "snowy": "snowy.mask16",
+    "snowy-rainy": "snowy.mask16",
+    "lightning": "lightning.mask16",
+    "lightning-rainy": "lightning.mask16",
+    "windy": "windy.mask16",
+    "windy-variant": "windy.mask16",
+    "fog": "fog.mask16",
+    "hail": "fog.mask16",
+    "unknown": "unknown.mask16"
+  }
+}

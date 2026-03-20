@@ -1,0 +1,56 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "monitor screen update",
+			"type": "shell",
+			"command": "/home/samuel/Projects/epaper-weather-display/.venv/bin/python",
+			"args": [
+				"camera_ui_helper.py",
+				"--camera",
+				"1",
+				"--serial-port",
+				"/dev/ttyACM0",
+				"--auto-detect",
+				"--verify-updates",
+				"--expected-update-minutes",
+				"15"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "upload sdcard files",
+			"type": "shell",
+			"command": "/home/samuel/Projects/epaper-weather-display/.venv/bin/python",
+			"args": [
+				"tools/upload_sdcard_files.py",
+				"--host",
+				"${input:esp32Host}",
+				"--root",
+				"sdcard"
+			]
+		},
+		{
+			"label": "upload sdcard fonts",
+			"type": "shell",
+			"command": "/home/samuel/Projects/epaper-weather-display/.venv/bin/python",
+			"args": [
+				"tools/upload_sdcard_files.py",
+				"--host",
+				"${input:esp32Host}",
+				"--root",
+				"sdcard",
+				"--only",
+				"fonts"
+			]
+		}
+	],
+	"inputs": [
+		{
+			"id": "esp32Host",
+			"type": "promptString",
+			"description": "ESP32 IP or hostname",
+			"default": "192.168.1.100"
+		}
+	]
+}
