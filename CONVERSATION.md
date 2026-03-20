@@ -91,16 +91,30 @@ build_flags =
 | Phase | Duration | Current |
 |---|---|---|
 | Deep sleep | ~14.5 min | ~10 µA |
-| WiFi connect + fetch | ~3-5 s | ~150 mA |
+| WiFi connect + fetch | ~3-5 s | ~90 mA* |
 | E-paper refresh | ~2 s | ~30 mA |
-| Avg (15 min cycle) | - | ~1.5 mA |
+| Avg (15 min cycle) | - | ~1.1 mA* |
 
-Estimated battery life: ~28 days on 1000mAh LiPo
+*After power optimisations (see below). Estimated battery life: ~38 days on 1000mAh LiPo.
+
+### Power Optimisations Implemented
+
+| Optimisation | Saving | Notes |
+|---|---|---|
+| Bluetooth disabled at compile time | ~25 mA / boot | `-DCONFIG_BT_ENABLED=0` in `platformio.ini` |
+| CPU frequency 80 MHz (was 240 MHz) | ~30 % CPU current | `setCpuFrequencyMhz(80)` at boot |
+| Static IP (no DHCP) | ~1 s WiFi-on time | `USE_STATIC_IP` in `config.h` |
+| WiFi TX power 11 dBm (was 20 dBm) | lower TX current | adequate for home router range |
+| NTP sync cached in RTC memory | 1 network RTT per `NTP_SYNC_INTERVAL` wakes | re-syncs every 8th wake by default |
+| Active time deducted from sleep budget | true cadence maintained | avoids drift accumulation |
+| `display.hibernate()` after every refresh | ~0.1 mA standby eliminated | called in both `drawWeather` and `drawError` |
+| WiFi fully powered off before deep sleep | no residual radio current | `WiFi.mode(WIFI_OFF)` + `esp_wifi_stop()` |
+| Battery voltage monitoring | awareness of state | oversampled ADC on GPIO 35 |
 
 ### Adaptive Update Rate
 - Daytime (07:00-22:00): update every 15 minutes
 - Nighttime (22:00-07:00): update every 60 minutes
-- Configurable in config.h
+- Configurable in `config.h` (`SLEEP_INTERVAL_DAY_S`, `SLEEP_INTERVAL_NIGHT_S`)
 
 ### Home Assistant Integration
 - Uses Long-Lived Access Token
@@ -114,7 +128,7 @@ Estimated battery life: ~28 days on 1000mAh LiPo
 - [x] Basic weather fetch from Home Assistant
 - [x] Display current weather + forecast
 - [x] Deep sleep + adaptive update rate
-- [ ] Battery level display
+- [x] Battery level display
 - [ ] Stable OTA updates
 
 ### Phase 2 - UI Improvements
